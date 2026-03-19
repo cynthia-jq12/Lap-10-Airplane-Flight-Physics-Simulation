@@ -27,7 +27,7 @@ public class AirplaneFlightPhysicsSimulation : MonoBehaviour
         rb = GetComponent<Rigidbody>();
 
         // ทำให้เครื่องบินเสถียรขึ้น ไม่หัวทิ่มง่ายๆ
-        rb.centerOfMass = new Vector3(0, -0.6f, -0.2f);
+        rb.centerOfMass = new Vector3(0, -0.4f, 0);
     }
 
     void FixedUpdate() // ใช้ FixedUpdate กับเรื่องที่เกี่ยวกับฟิสิกส์เสมอ
