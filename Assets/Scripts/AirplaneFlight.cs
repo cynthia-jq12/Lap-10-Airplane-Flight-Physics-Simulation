@@ -1,97 +1,114 @@
 ﻿using UnityEngine;
-using UnityEngine.InputSystem; // ต้องใช้ตัวนี้สำหรับการรับค่าจากคีย์บอร์ดแบบใหม่
+using UnityEngine.InputSystem;
 
-public class AirplaneFlightPhysicsSimulation : MonoBehaviour
+public class AirplanePhysicsController : MonoBehaviour
 {
+    [Header("Engine")]
+    public float thrust = 40f; // แรงขับของเครื่องยนต์
+
+    [Header("Aerodynamics")]
+    public float liftCoefficient = 0.02f; // ค่าความแรงของ Lift
+    public float dragCoefficient = 0.02f; // แรงต้านอากาศ
+    public float sideDrag = 2f;           // ลดการไถลด้านข้าง
+
+    [Header("BANK TURN")]
+    public float turnStrength = 0.5f; // ความแรงการเลี้ยวเมื่อเอียงปีก
+
+    [Header("STALL")]
+    public float stallAngle = 35f;        // มุมที่เริ่ม stall
+    public float stallLiftMultiplier = 0.3f; // ลด lift เมื่อ stall
+
+    [Header("Control")]
+    public float pitchPower = 15f; // เชิดหัว
+    public float rollPower = 20f;  // เอียง
+    public float yawPower = 15f;   // เลี้ยว turn
+
     Rigidbody rb;
     bool engineOn = false;
-
-    [Header("Flight Settings")]
-    public float thrust = 5000f;
-    public float liftCoefficient = 0.5f;
-    public float stallAngle = 25f;
-    public float stallLiftMultiplier = 0.3f;
-
-    [Header("Drag Settings")]
-    public float dragCoefficient = 0.05f;
-    public float sideDrag = 2f;
-
-    [Header("Control Power")]
-    public float pitchPower = 100f; // เชิดหัว/กดหัว (แกน X)
-    public float yawPower = 50f;    // หันซ้าย/ขวา (แกน Y)
-    public float rollPower = 100f;  // เอียงปีก (แกน Z)
-    public float turnStrength = 0.5f;
 
     void Start()
     {
         rb = GetComponent<Rigidbody>();
 
-        // ทำให้เครื่องบินเสถียรขึ้น ไม่หัวทิ่มง่ายๆ
-        rb.centerOfMass = new Vector3(0, -0.4f, 0);
+        // ทำให้เครื่องบินเสถียร
+        // rb.centerOfMass = new Vector3(0, -0.5f, 0);
+        rb.centerOfMass = new Vector3(0, -0.6f, -0.2f);
     }
 
-    void FixedUpdate() // ใช้ FixedUpdate กับเรื่องที่เกี่ยวกับฟิสิกส์เสมอ
+    void FixedUpdate()
     {
         Keyboard kb = Keyboard.current;
         if (kb == null) return;
 
-        // -------- 1. THRUST (แรงขับไปข้างหน้า) --------
+        // -------- THRUST --------
         if (kb.spaceKey.isPressed)
         {
             engineOn = true;
-            // ใส่แรงดันไปด้านหน้าของตัวเครื่องบิน
+
+            // แรงขับไปข้างหน้า
             rb.AddRelativeForce(Vector3.forward * thrust, ForceMode.Acceleration);
         }
 
-        // -------- 2. SPEED (หาความเร็วเฉพาะทิศหน้าตรง) --------
-        // Vector3.Dot ช่วยคำนวณว่าเครื่องบินพุ่งไปข้างหน้าเร็วแค่ไหน
+        // --- SPEED - หาความเร็วตามทิศหน้า -------
         float forwardSpeed = Vector3.Dot(rb.linearVelocity, transform.forward);
 
-        // -------- 3. LIFT (แรงยก) --------
+        // --- LIFT - Lift depends on forward speed -
+        // The faster the plane moves → the stronger the lift.
         if (engineOn && forwardSpeed > 5f)
         {
-            // สูตรแรงยก Lift แปลผันตามความเร็วยกกำลังสอง
+            // Lift ∝ velocity²
             float lift = forwardSpeed * forwardSpeed * liftCoefficient;
 
-            // ตรวจสอบมุมเงย (Stall) ถ้าเชิดหน้ามากเกินไป ลมหลุดปีก แรงยกจะหาย
-            float pitchAngle = Vector3.Angle(transform.forward, Vector3.ProjectOnPlane(transform.forward, Vector3.up));
+            // ตรวจมุมเครื่องบินเพื่อจำลอง stall
+            float pitchAngle = Vector3.Angle(transform.forward,
+                                             Vector3.ProjectOnPlane(transform.forward,
+                                             Vector3.up));
+
             if (pitchAngle > stallAngle)
             {
-                lift *= stallLiftMultiplier; // ลดแรงยกลงเมื่อเกิด Stall
+                // ลด lift เมื่อ stall
+                lift *= stallLiftMultiplier;
             }
 
-            // ใส่แรงยกขึ้นฟ้ายกตัวเครื่องบิน
+            // ใส่แรงยก Upward force lifts the airplane.
             rb.AddForce(transform.up * lift, ForceMode.Acceleration);
-            Debug.DrawRay(transform.position, transform.up * 5f, Color.green); // เส้นสีเขียวแสดงแรงยก
+
+            // แสดง vector ของ Lift
+            Debug.DrawRay(transform.position, transform.up * 5f, Color.green);
         }
 
-        // -------- 4. DRAG (แรงต้านอากาศ) --------
+        // --- DRAG (Air Resistance) -------
         Vector3 drag = -rb.linearVelocity * dragCoefficient;
         rb.AddForce(drag);
 
-        // SIDE DRAG (ลดการไถลออกข้างแบบดริฟต์)
+        // -------- SIDE DRAG (ลด drift ซ้ายขวา) --------
         Vector3 sideVel = Vector3.Dot(rb.linearVelocity, transform.right) * transform.right;
         rb.AddForce(-sideVel * sideDrag);
 
-        // -------- 5. CONTROL INPUT (บังคับทิศทาง) --------
+        // --- CONTROL Input --------
         float pitch = 0;
         float roll = 0;
         float yaw = 0;
 
-        if (kb.sKey.isPressed) pitch = 1;  // ดึงหัวขึ้น
-        if (kb.wKey.isPressed) pitch = -1; // กดหัวลง
-        if (kb.aKey.isPressed) roll = 1;   // เอียงซ้าย
-        if (kb.dKey.isPressed) roll = -1;  // เอียงขวา
-        if (kb.qKey.isPressed) yaw = -1;   // หันซ้าย
-        if (kb.eKey.isPressed) yaw = 1;    // หันขวา
+        if (kb.sKey.isPressed) pitch = 1;
+        if (kb.wKey.isPressed) pitch = -1;
 
-        // -------- 6. TORQUE CONTROL (ใส่แรงหมุน) --------
+        if (kb.aKey.isPressed) roll = 1;
+        if (kb.dKey.isPressed) roll = -1;
+
+        if (kb.qKey.isPressed) yaw = -1;
+        if (kb.eKey.isPressed) yaw = 1;
+
+        // --- TORQUE CONTROL --------
         rb.AddRelativeTorque(new Vector3(pitch * pitchPower, yaw * yawPower, -roll * rollPower));
 
-        // -------- 7. BANKED TURN (ตีวงเลี้ยวเวลาเอียงเครื่อง) --------
+        // -------- BANKED TURN --------
+        // เมื่อเครื่องบินเอียงปีก Lift จะเอียง ทำให้เครื่องบินเลี้ยว
         float bankAmount = Vector3.Dot(transform.right, Vector3.up);
+
         rb.AddForce(transform.right * bankAmount * forwardSpeed * turnStrength);
 
-        Debug.DrawRay(transform.position, transform.forward * 5f, Color.blue); // เส้นสีฟ้าแสดงทิศทางเดินหน้า
+        // แสดงทิศ forward
+        Debug.DrawRay(transform.position, transform.forward * 5f, Color.blue);
     }
 }
